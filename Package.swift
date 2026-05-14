@@ -1,8 +1,24 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
 
 let useLocalDeps = Context.environment["SWIFTCI_USE_LOCAL_DEPS"] != nil
+let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let localQuiverPackagesRoot = Context.environment["QUIVER_PACKAGES_PATH"] ?? ".."
+
+func quiverPackage(_ repository: String) -> Package.Dependency {
+    let localURL = URL(fileURLWithPath: localQuiverPackagesRoot, relativeTo: packageDirectory)
+        .appendingPathComponent(repository)
+        .standardizedFileURL
+    let manifestURL = localURL.appendingPathComponent("Package.swift")
+
+    if FileManager.default.fileExists(atPath: manifestURL.path) {
+        return .package(path: localURL.path)
+    }
+
+    return .package(url: "https://github.com/hironichu/\(repository).git", branch: "main")
+}
 
 func nioDependencies() -> [Package.Dependency] {
     if useLocalDeps {
@@ -32,7 +48,7 @@ let package = Package(
         .library(name: "HTTP3", targets: ["HTTP3"]),
     ],
     dependencies: nioDependencies() + [
-        .package(path: "../quiver-quic"),
+        quiverPackage("quiver-quic"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.12.0"),
     ],
     targets: [
