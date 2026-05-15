@@ -5,16 +5,18 @@ import PackageDescription
 
 let useLocalDeps = Context.environment["SWIFTCI_USE_LOCAL_DEPS"] != nil
 let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-let localQuiverPackagesRoot = Context.environment["QUIVER_PACKAGES_PATH"] ?? ".."
+let localQuiverPackagesRoot = Context.environment["QUIVER_PACKAGES_PATH"]
 
 func quiverPackage(_ repository: String) -> Package.Dependency {
-    let localURL = URL(fileURLWithPath: localQuiverPackagesRoot, relativeTo: packageDirectory)
-        .appendingPathComponent(repository)
-        .standardizedFileURL
-    let manifestURL = localURL.appendingPathComponent("Package.swift")
+    if let localQuiverPackagesRoot {
+        let localURL = URL(fileURLWithPath: localQuiverPackagesRoot, relativeTo: packageDirectory)
+            .appendingPathComponent(repository)
+            .standardizedFileURL
+        let manifestURL = localURL.appendingPathComponent("Package.swift")
 
-    if FileManager.default.fileExists(atPath: manifestURL.path) {
-        return .package(path: localURL.path)
+        if FileManager.default.fileExists(atPath: manifestURL.path) {
+            return .package(path: localURL.path)
+        }
     }
 
     return .package(url: "https://github.com/hironichu/\(repository).git", branch: "main")
