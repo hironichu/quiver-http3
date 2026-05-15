@@ -8,6 +8,7 @@ HTTP/3, QPACK, and server-side WebTransport implementation for Quiver. This pack
 | --- | --- |
 | `QPACK` | QPACK encoder, decoder, integer/string codecs, Huffman codec, and static table support. |
 | `HTTP3` | HTTP/3 client/server APIs, connection management, frame codecs, request/response types, priority handling, Extended CONNECT, and WebTransport implementation. |
+| `HTTP3ServiceLifecycle` | Optional Swift Service Lifecycle adapter for running `HTTP3Server` inside a `ServiceGroup`. |
 
 ## Installation
 
@@ -27,8 +28,51 @@ Then depend on the products you need:
 	dependencies: [
 		.product(name: "HTTP3", package: "quiver-http3"),
 		.product(name: "QPACK", package: "quiver-http3"),
+		.product(name: "HTTP3ServiceLifecycle", package: "quiver-http3"),
 	]
 )
+```
+
+## Service Lifecycle
+
+Executables that use Swift Service Lifecycle can run an `HTTP3Server` as a service without changing Quiver's core runtime APIs:
+
+```swift
+import HTTP3
+import HTTP3ServiceLifecycle
+import Logging
+import ServiceLifecycle
+
+let server = HTTP3Server(options: options)
+await server.onRequest { context in
+	try await context.respond(status: 200)
+}
+
+let serviceGroup = ServiceGroup(
+	services: [HTTP3ServerService(server: server)],
+	gracefulShutdownSignals: [.sigterm, .sigint],
+	logger: Logger(label: "quiver.http3")
+)
+
+try await serviceGroup.run()
+```
+
+Use `.listenAll` when the server should also run the configured Alt-Svc gateway:
+
+```swift
+let service = HTTP3ServerService(server: server, startupMode: .listenAll)
+```
+
+For advanced startup, pass a custom closure:
+
+```swift
+let service = HTTP3ServerService(server: server) { server in
+	try await server.listen(
+		host: "0.0.0.0",
+		port: 4433,
+		quicConfiguration: quicConfiguration
+	)
+}
 ```
 
 ## Local Development

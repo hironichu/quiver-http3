@@ -48,10 +48,12 @@ let package = Package(
     products: [
         .library(name: "QPACK", targets: ["QPACK"]),
         .library(name: "HTTP3", targets: ["HTTP3"]),
+        .library(name: "HTTP3ServiceLifecycle", targets: ["HTTP3ServiceLifecycle"]),
     ],
     dependencies: nioDependencies() + [
         quiverPackage("quiver-quic"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.12.0"),
+        .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.0.0"),
     ],
     targets: [
         .target(
@@ -75,6 +77,14 @@ let package = Package(
             ],
             path: "Sources/HTTP3"
         ),
+        .target(
+            name: "HTTP3ServiceLifecycle",
+            dependencies: [
+                "HTTP3",
+                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+            ],
+            path: "Sources/HTTP3ServiceLifecycle"
+        ),
         .testTarget(
             name: "QPACKTests",
             dependencies: ["QPACK"],
@@ -84,6 +94,7 @@ let package = Package(
             name: "HTTP3Tests",
             dependencies: [
                 "HTTP3",
+                "HTTP3ServiceLifecycle",
                 .product(name: "QUIC", package: "quiver-quic"),
                 "QPACK",
                 .product(name: "QUICCore", package: "quiver-quic"),
