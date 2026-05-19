@@ -2569,6 +2569,72 @@ final class HTTP3ExtendedConnectTests: XCTestCase {
     }
 }
 
+// MARK: - HTTP/3 Router Tests
+
+final class HTTP3RouterTests: XCTestCase {
+
+    func testStaticFilePredicateMatchesConfiguredBasePath() {
+        let router = HTTP3Router()
+        router.serveStaticFiles(from: "/tmp/public", basePath: "/static")
+
+        XCTAssertTrue(router.isStaticFileRequest(request(path: "/static/app.css")))
+        XCTAssertTrue(router.isStaticFileRequest(request(path: "/static/app.css?v=1")))
+        XCTAssertTrue(router.isStaticFileRequest(request(path: "/static")))
+        XCTAssertFalse(router.isStaticFileRequest(request(path: "/staticity/app.css")))
+        XCTAssertFalse(router.isStaticFileRequest(request(method: .post, path: "/static/app.css")))
+    }
+
+    func testStaticFilePredicateLetsRoutesTakePrecedence() {
+        let router = HTTP3Router()
+        router.serveStaticFiles(from: "/tmp/public", basePath: "/static")
+        router.get("/static/status") { context, _ in
+            try await context.respond(status: 200)
+        }
+
+        XCTAssertFalse(router.isStaticFileRequest(request(path: "/static/status")))
+        XCTAssertTrue(router.isStaticFileRequest(request(path: "/static/app.css")))
+    }
+
+    func testSkippingStaticFilesBypassesWrappedResolver() async {
+        actor Counter {
+            private(set) var value = 0
+            func increment() { value += 1 }
+        }
+
+        let router = HTTP3Router()
+        router.serveStaticFiles(from: "/tmp/public", basePath: "/static")
+        let counter = Counter()
+
+        let resolver = router.skippingStaticFiles { context in
+            await counter.increment()
+            return context.session.setting(namespace: "auth", values: ["sub": .string("hiro")])
+        }
+
+        let staticContext = context(path: "/static/app.css")
+        let staticSession = await resolver(staticContext)
+        XCTAssertNil(staticSession.get("sub", namespace: "auth"))
+
+        let dynamicContext = context(path: "/user")
+        let dynamicSession = await resolver(dynamicContext)
+        XCTAssertEqual(dynamicSession.get("sub", namespace: "auth"), .string("hiro"))
+
+        let finalValue = await counter.value
+        XCTAssertEqual(finalValue, 1)
+    }
+
+    private func request(method: HTTPMethod = .get, path: String) -> HTTP3Request {
+        HTTP3Request(method: method, authority: "example.com", path: path)
+    }
+
+    private func context(path: String) -> HTTP3RequestContext {
+        HTTP3RequestContext(
+            request: request(path: path),
+            streamID: 1,
+            respond: { _, _, _, _ in }
+        )
+    }
+}
+
 // MARK: - HTTP/3 Body Tests
 
 final class HTTP3BodyTests: XCTestCase {

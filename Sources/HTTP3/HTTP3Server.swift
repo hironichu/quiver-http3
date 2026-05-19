@@ -1226,6 +1226,47 @@ public final class HTTP3Router: Sendable {
         staticFileConfig.withLock { $0 = (directory, basePath) }
     }
 
+    /// Returns whether the request would be handled by the router's static-file path.
+    ///
+    /// This is a cheap routing predicate intended for middleware and session resolvers.
+    /// It does not touch the filesystem; it only checks method, registered routes, and
+    /// the configured static base path. Registered dynamic routes take precedence over
+    /// static-file serving, matching the behavior of `handler`.
+    public func isStaticFileRequest(_ request: HTTP3Request) -> Bool {
+        guard staticFileConfig.withLock({ $0 }) != nil else { return false }
+        guard request.method == .get else { return false }
+
+        let pathSegments = Self.parsePathSegments(request.path)
+        if matchingRoute(for: request, pathSegments: pathSegments) != nil {
+            return false
+        }
+
+        guard let (_, basePath) = staticFileConfig.withLock({ $0 }) else { return false }
+        return Self.path(request.path, matchesStaticBasePath: basePath)
+    }
+
+    /// Wraps a request-session resolver so static-file requests keep their existing session.
+    ///
+    /// Use this when a global session resolver performs authentication or other expensive
+    /// work that static assets do not need:
+    ///
+    /// ```swift
+    /// await server.onRequestSession(
+    ///     router.skippingStaticFiles(authGuard.resolver)
+    /// )
+    /// ```
+    public func skippingStaticFiles(
+        _ resolver: @escaping HTTP3Server.RequestSessionResolver
+    ) -> HTTP3Server.RequestSessionResolver {
+        return { [self] context in
+            if self.isStaticFileRequest(context.request) {
+                return context.session
+            }
+
+            return await resolver(context)
+        }
+    }
+
     /// The combined request handler suitable for `HTTP3Server.onRequest()`.
     ///
     /// This handler matches incoming requests against registered routes
@@ -1236,31 +1277,14 @@ public final class HTTP3Router: Sendable {
         return { [self] context in
             let pathSegments = Self.parsePathSegments(context.request.path)
 
-            let matchingRoute = self.routes.withLock {
-                routes -> (route: Route, parameters: [String: String])?
-            in
-                for route in routes {
-                    // Check method (nil matches any)
-                    if let method = route.method, method != context.request.method {
-                        continue
-                    }
-
-                    if let parameters = Self.match(
-                        routeSegments: route.segments,
-                        requestSegments: pathSegments
-                    ) {
-                        return (route, parameters)
-                    }
-                }
-                return nil
-            }
+            let matchingRoute = self.matchingRoute(for: context.request, pathSegments: pathSegments)
 
             if let matchingRoute {
                 try await matchingRoute.route.handler(context, matchingRoute.parameters)
             } else {
                 // Try to serve static files if configured
                 if let (directory, basePath) = self.staticFileConfig.withLock({ $0 }) {
-                    if context.request.path.hasPrefix(basePath) {
+                    if Self.path(context.request.path, matchesStaticBasePath: basePath) {
                         do {
                             let served = try await self.tryServeStaticFile(
                                 context: context,
@@ -1280,11 +1304,45 @@ public final class HTTP3Router: Sendable {
         }
     }
 
-    private static func parseRouteSegments(_ path: String) -> [RouteSegment] {
-        parsePathSegments(path).map(parseRouteSegment)
+    private func matchingRoute(
+        for request: HTTP3Request,
+        pathSegments: [String]
+    ) -> (route: Route, parameters: [String: String])? {
+        routes.withLock { routes in
+            for route in routes {
+                // Check method (nil matches any)
+                if let method = route.method, method != request.method {
+                    continue
+                }
+
+                if let parameters = Self.match(
+                    routeSegments: route.segments,
+                    requestSegments: pathSegments
+                ) {
+                    return (route, parameters)
+                }
+            }
+            return nil
+        }
     }
 
-    private static func parsePathSegments(_ path: String) -> [String] {
+    private static func path(_ path: String, matchesStaticBasePath basePath: String) -> Bool {
+        let requestPath = pathWithoutQueryOrFragment(path)
+        let trimmedBasePath = basePath.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedBasePath.isEmpty, trimmedBasePath != "/" else {
+            return true
+        }
+
+        let rootedBasePath = trimmedBasePath.hasPrefix("/") ? trimmedBasePath : "/\(trimmedBasePath)"
+        let normalizedBasePath = rootedBasePath.hasSuffix("/") && rootedBasePath.count > 1
+            ? String(rootedBasePath.dropLast())
+            : rootedBasePath
+
+        return requestPath == normalizedBasePath || requestPath.hasPrefix(normalizedBasePath + "/")
+    }
+
+    private static func pathWithoutQueryOrFragment(_ path: String) -> String {
         var normalized = path
         if let queryIndex = normalized.firstIndex(of: "?") {
             normalized = String(normalized[..<queryIndex])
@@ -1292,6 +1350,15 @@ public final class HTTP3Router: Sendable {
         if let fragmentIndex = normalized.firstIndex(of: "#") {
             normalized = String(normalized[..<fragmentIndex])
         }
+        return normalized
+    }
+
+    private static func parseRouteSegments(_ path: String) -> [RouteSegment] {
+        parsePathSegments(path).map(parseRouteSegment)
+    }
+
+    private static func parsePathSegments(_ path: String) -> [String] {
+        let normalized = pathWithoutQueryOrFragment(path)
 
         let trimmed = normalized.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !trimmed.isEmpty else { return [] }
