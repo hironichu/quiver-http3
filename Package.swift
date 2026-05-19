@@ -19,7 +19,7 @@ func quiverPackage(_ repository: String) -> Package.Dependency {
         }
     }
 
-    return .package(url: "https://github.com/hironichu/\(repository).git", branch: "main")
+    return .package(url: "https://github.com/hironichu/\(repository).git", branch: "experimental/runtime")
 }
 
 func nioDependencies() -> [Package.Dependency] {
