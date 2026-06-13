@@ -25,13 +25,15 @@ func quiverPackage(_ repository: String) -> Package.Dependency {
 func nioDependencies() -> [Package.Dependency] {
     if useLocalDeps {
         return [
-            .package(path: "../../swift-nio"),
-            .package(path: "../../swift-nio-ssl"),
+            // .package(path: "../../swift-nio"),
+            // .package(path: "../../swift-nio-ssl"),
+            .package(url: "https://github.com/apple/swift-nio.git", from: "2.101.0"),
+            .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.37.1"),
         ]
     } else {
         return [
-            .package(url: "https://github.com/apple/swift-nio.git", branch: "pr-3433"),
-            .package(url: "https://github.com/apple/swift-nio-ssl.git", branch: "pr-567-windows-support"),
+            .package(url: "https://github.com/apple/swift-nio.git", from: "2.101.0"),
+            .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.37.1"),
         ]
     }
 }
@@ -52,8 +54,8 @@ let package = Package(
     ],
     dependencies: nioDependencies() + [
         quiverPackage("quiver-quic"),
-        .package(url: "https://github.com/apple/swift-log.git", from: "1.12.0"),
-        .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.0.0"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.13.1"),
+        .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.11.0"),
     ],
     targets: [
         .target(
